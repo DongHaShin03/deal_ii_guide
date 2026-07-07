@@ -12,20 +12,21 @@
 #include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 
+#include <iostream>
 #include <fstream>
 
 using namespace dealii; 
 
 const int dim = 2; 
 
-void make_grid(Triangulation<dim> &triangulation)
+void make_grid(Triangulation<dim> &triangulation, int n_cells, int n_steps)
 {
     Point<dim> center(1, 0); 
     const double inner_radius = .5, outer_radius = 1.0; 
-    GridGenerator::hyper_shell(triangulation, center, inner_radius, outer_radius, 5); // 5 cells ring
+    GridGenerator::hyper_shell(triangulation, center, inner_radius, outer_radius, n_cells); // 5 cells ring
 
     // refine towards the inner ring: 
-    for(unsigned int step = 0; step < 5; ++step)
+    for(int step = 0; step < n_steps; ++step)
     {
         for(const auto &cell : triangulation.active_cell_iterators())
         {
@@ -47,6 +48,13 @@ void make_grid(Triangulation<dim> &triangulation)
     GridOut().write_gnuplot(triangulation, mesh_file); 
 }
 
+void visualize(Triangulation<dim> &triangulation)
+{
+    std::ofstream output_file("../imgs/mesh.svg"); 
+    GridOut gridout; 
+    gridout.write_svg(triangulation, output_file); 
+}
+
 void write_dof_locations(const DoFHandler<dim> &dof_handler, const std::string &filename)
 {
     const std::map<types::global_dof_index, Point<2>> dof_location_map 
@@ -56,12 +64,40 @@ void write_dof_locations(const DoFHandler<dim> &dof_handler, const std::string &
     DoFTools::write_gnuplot_dof_support_point_info(dof_location_file, dof_location_map); 
 }
 
-int main()
+void distribute_dofs(DoFHandler<dim> &dof_handler, int order)
 {
-    Triangulation<dim> triangulation; 
-    std::string img_file = "../imgs/mesh.svg"; 
-    make_grid(triangulation);
+    const FE_Q<2> finite_element(order);  
+    dof_handler.distribute_dofs(finite_element); 
+    write_dof_locations(dof_handler, "dof-locations-1.gnuplot");    
 
+    DynamicSparsityPattern dynamic_sparsity_pattern(dof_handler.n_dofs(), dof_handler.n_dofs()); // useful in order not to have waste of memory with low overhead
+    DoFTools::make_sparsity_pattern(dof_handler, dynamic_sparsity_pattern); // fill the object with the non-zero elements
+    SparsityPattern sparsity_pattern; 
+    sparsity_pattern.copy_from(dynamic_sparsity_pattern); // create the sparsity pattern 
 
-    return 0; 
+    std::ofstream out("../imgs/sparsity-pattern-1.svg"); 
+    sparsity_pattern.print_svg(out); 
 }
+
+  int main(int argc, char** argv)
+  {
+
+    if(argc < 3)
+    {
+        std::cerr << "Correct usage: ./run <int> <int> <int>\n" << std::endl; 
+        return 0; 
+    }
+
+    int order = atoi(argv[1]); 
+    int n_cells = atoi(argv[2]); 
+    int n_steps = atoi(argv[3]); 
+
+    Triangulation<2> triangulation;
+    make_grid(triangulation, n_cells, n_steps);
+  
+    DoFHandler<2> dof_handler(triangulation);
+  
+    distribute_dofs(dof_handler, order);
+
+    visualize(triangulation); 
+  }
